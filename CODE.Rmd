@@ -1,0 +1,721 @@
+---
+title: "Telecom Customer Churn Analysis"
+author: "Chun-Li Hou"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Content
+
+- [Introduction](#1)
+    - [Background](#1.1)
+- [Preparation](#2)
+    - [Environment](#2.1)
+    - [Dataset](#2.2)
+- [Exploring Data Analysis](#3)
+    - [Churn Percent in Overall](#3.1)
+    - [Churn Proportion in Different Attributes 1](#3.2)
+    - [Churn Proportion in Different Attributes 2](#3.3)
+    - [Churn Proportion in Different Attributes 3](#3.4)
+    - [Churn Proportion in Different Attributes 4](#3.5)
+    - [Correlation between Numeric Variables](#3.6)
+    - [Outliers in Numeric Variables Checking](#3.7)
+- [Prediction](#4)
+    - [Preprocessing](#4.1)
+    - [Machine Learning](#4.2)
+        - [Logistic Regression](#4.2.1)
+        - [K Nearest Neighbors](#4.2.2)
+        - [Support Vector Machine](#4.2.3)
+        - [Naive Bayes](#4.2.4)
+        - [Decision Tree](#4.2.5)
+        - [Random Forest](#4.2.6)
+        - [XGBoost](#4.2.7)
+        - [Neural Net](#4.2.8)
+    - [Evaluation](#4.3)
+- [Conclusion](#5)
+- [Reference](#6)
+
+## Introduction <a name = "1"></a>
+
+### Background <a name = "1.1"></a>
+
+This analysis focuses on the behavior of telecom customers who are more likely to leave the platform. We intend to find out the most striking behavior of customers through exploring data analysis and later on use predictive analytics techniques to determine the customers who are most likely to churn.
+
+## Preparation <a name = "2"></a>
+
+### Environment <a name = "2.1"></a>
+
+Let us set up the environment and be ready for the analysis.
+
+```{r, message = FALSE}
+# setting gotop
+gotop::use_gotop()
+
+# loading packages
+if(!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, MASS, car, e1071, caret, caTools, 
+               class, rpart, rpart.plot, rattle, randomForest, neuralnet,
+               pROC, cowplot, corrplot, ggpubr, RColorBrewer)
+
+# setting plot
+theme.h = theme_bw() +  
+  theme(plot.title = element_text(face = "bold", size = (15)), 
+        plot.subtitle = element_text(size = (10)),
+        axis.title = element_text(size = (10))) +
+  theme(axis.text.x = element_text(angle = 0), legend.position = "none")
+theme.v = theme_bw() +  
+  theme(plot.title = element_text(face = "bold", size = (15)), 
+        plot.subtitle = element_text(size = (10)),
+        axis.title = element_text(size = (10))) +
+  theme(axis.text.x = element_text(angle = 90), legend.position = "none")
+
+# brewer.pal(n = 3, name = "RdBu")
+# "#EF8A62" "#F7F7F7" "#67A9CF"
+# brewer.pal(n = 3, name = "Spectral")
+# "#FC8D59" "#FFFFBF" "#99D594"
+```
+
+### Dataset <a name = "2.2"></a>
+
+The data's dimension is 7032 rows and 21 columns. Below is about the data.
+
+- Customers who left within the last month:  
+CHURN 
+- Services that each customer has signed up for:  
+PHONE, MULTIPLE LINES, INTERNET, ONLINE SECURITY, ONLINE BACKUP, DEVICE PROTECTION, TECH SUPPORT, STREAMING TV & MOVIES
+- Customer account information:  
+TIME, CONTRACT, PAYMENT METHOD, PAPERLESS BILLING, MONTHLY CHARGES, TOTOAL CHARGES
+- Customer demographic information:  
+GENDER, AGE, PARTNERS & DEPENDENTS
+
+```{r}
+# importing dataset
+df.0 = read.csv("DATA.csv")
+
+# removing na data observation
+df.1 = df.0[complete.cases(df.0), ]
+
+# encoding categorical variable
+df.1$SeniorCitizen = factor(df.1$SeniorCitizen, levels = c(0, 1), labels = c("No", "Yes"))
+df.1[, sapply(df.1, is.character)] = lapply(df.1[, sapply(df.1, is.character)], as.factor)
+
+# attaching dataset
+attach(df.1)
+```
+
+## Exploring Data Analysis <a name = "3"></a>
+
+### Churn Percent in Overall <a name = "3.1"></a>
+
+- Churn tells us about the number of customers who leave within the last month.
+- In overall, around 26% of customers leave the platform within the last month.
+
+```{r, fig.align = "center", fig.width = 5, fig.height = 4}
+df.1 %>% 
+  group_by(Churn) %>%
+  summarise(Count = n()) %>% 
+  mutate(Percent = prop.table(Count)*100) %>%
+  ggplot(aes(reorder(Churn, -Percent), Percent), fill = Churn) +
+  geom_col(fill = c("#EF8A62", "#67A9CF")) +
+  labs(title = "Churn Percent", x = "Churn", y = "Percent") +
+  theme.h
+```
+
+### Churn Proportion in Different Attributes 1 <a name = "3.2"></a>
+
+- Churn percent is higher in case of senior citizens.
+- Churn percent is higher in case of customers with no partners or no dependents (single). In constrast, churn percent is lower in case of customers with partners or dependents (family).
+
+```{r, fig.width = 10, fig.height = 6}
+plot_grid(ggplot(df.1, aes(x = gender,fill = Churn)) + geom_bar(position = "fill") + 
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted") + theme.h, 
+          ggplot(df.1, aes(x = SeniorCitizen, fill = Churn)) + geom_bar(position = "fill") + 
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted") + theme.h, 
+          ggplot(df.1, aes(x = Partner, fill = Churn)) + geom_bar(position = "fill") + 
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted") + theme.h, 
+          ggplot(df.1, aes(x = Dependents, fill = Churn)) + geom_bar(position = "fill") + 
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted") + theme.h, 
+          ggplot(df.1, aes(x = PhoneService, fill = Churn)) + geom_bar(position = "fill") + 
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted") + theme.h, 
+          ggplot(df.1, aes(x = MultipleLines, fill = Churn)) + geom_bar(position = "fill") + 
+            scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) + 
+            theme.h + theme(legend.position = c(0.87, 0.80)) +
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted"),
+          align = "h") 
+```
+
+### Churn Proportion in Different Attributes 2 <a name = "3.3"></a>
+
+- Churn percent is higher in case of fiber optic internet service.
+- Churn percent is higher in case of customers who do not have online security service, online backup service, device protection service, or tech support service.
+
+```{r, fig.width = 10, fig.height = 6}
+plot_grid(ggplot(df.1, aes(x = InternetService, fill = Churn)) + geom_bar(position = "fill") + 
+            scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) + theme.h +
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted"),
+          ggplot(df.1, aes(x = OnlineSecurity, fill = Churn)) + geom_bar(position = "fill") + 
+            scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) + theme.h +
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted"),
+          ggplot(df.1, aes(x = OnlineBackup, fill = Churn)) + geom_bar(position = "fill") + 
+            scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) + theme.h +
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted"),
+          ggplot(df.1, aes(x = DeviceProtection, fill = Churn)) + geom_bar(position = "fill") + 
+            scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) + theme.h +
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted"),
+          ggplot(df.1, aes(x = TechSupport, fill = Churn)) + geom_bar(position = "fill") + 
+            scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) + theme.h +
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted"),
+          ggplot(df.1, aes(x = StreamingTV, fill = Churn)) + geom_bar(position = "fill") + 
+            scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) + 
+            theme.h + theme(legend.position = c(0.87, 0.80)) +
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted"),
+          align = "h")
+```
+
+### Churn Proportion in Different Attributes 3 <a name = "3.4"></a>
+
+- Churn percent is higher in case of customers with monthly subscription when compared to customers with one or two year contract.
+- Churn percent is higher in case of customers having paperless billing option.
+- Churn percent is higher in case of customers who use electronic check as payment method when compared to other options.
+
+```{r, fig.width = 10, fig.height = 6}
+plot_grid(ggplot(df.1, aes(x = StreamingMovies, fill = Churn)) + geom_bar(position = "fill") + 
+            scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) + theme.h +
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted"),
+          ggplot(df.1, aes(x = Contract, fill = Churn)) + geom_bar(position = "fill") + 
+            scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) + theme.h +
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted"),
+          ggplot(df.1, aes(x = PaperlessBilling, fill = Churn)) + geom_bar(position = "fill") + 
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted") + theme.h, 
+          ggplot(df.1, aes(x = PaymentMethod, fill = Churn)) + geom_bar(position = "fill") + 
+            scale_x_discrete(labels = function(x) str_wrap(x, width = 10)) + 
+            theme.h + theme(legend.position = c(0.92, 0.80)) +
+            geom_hline(yintercept = 0.26, size = 1, alpha = 0.5, linetype = "dotted"),
+          align = "h")
+```
+
+### Churn Proportion in Different Attributes 4 <a name = "3.5"></a>
+
+- Tenure: the median tenure for customers who churn is around 10 months. The lower tenure, the more churn percent.
+- Monthly charges: the median monthly charges for customers who churn is above $75. The higher monthly charges, the more churn percent.
+- Total charges: the median total charges for customers who churn is around $700. The lower total charges, the more churn percent.
+
+```{r, fig.width = 10, fig.height = 3}
+p.1 = ggplot(df.1, aes(y = tenure, x = "", fill = Churn)) + 
+  geom_boxplot() + 
+  theme.v +
+  xlab(NULL)
+p.2 = ggplot(df.1, aes(y = MonthlyCharges, x = "", fill = Churn)) + 
+  geom_boxplot() + 
+  theme.v +
+  xlab(NULL)
+p.3 = ggplot(df.1, aes(y = TotalCharges, x = "", fill = Churn)) + 
+  geom_boxplot() + 
+  theme.v + theme(legend.position = c(0.87, 0.84)) +
+  xlab(NULL)
+ggarrange(p.1, p.2, p.3, nrow = 1, ncol = 3)
+```
+
+### Correlation between Numeric Variables <a name = "3.6"></a>
+
+- Total charges is positive correlated with monthly charges and tenure.
+- Monthly charges is closed to 0 correlated with tenure.
+
+```{r}
+num.cols = sapply(df.1, is.numeric)
+cor.data = cor(df.1[, num.cols])
+corrplot(cor.data, method = "color", col = brewer.pal(n = 7, name = "RdBu"), 
+         type = "lower", addCoef.col = "black", tl.col = "black", tl.cex = 0.7)
+```
+
+### Outliers in Numeric Variables Checking <a name = "3.7"></a>
+
+- It seems none of the values are beyond the whiskers in all of the numeric variables.
+
+```{r, fig.align = "center", fig.width = 8, fig.height = 3}
+# out: values of any data points which lie beyond the extremes of the whiskers
+par(mfrow = c(1, 3))
+p.1 = boxplot(df.1$tenure, main = "Tenure")$out
+p.2 = boxplot(df.1$MonthlyCharges, main = "Monthly Charges")$out
+p.3 = boxplot(df.1$TotalCharges, main = "Total Charges")$out
+```
+
+## Prediction <a name = "4"></a>
+
+### Preprocessing <a name = "4.1"></a>
+
+- Cleaning the factor features
+- Standardising numeric features
+- Creating derived features
+- Creating dummy variables for factor variables
+- Creating the final dataset
+- Partition dataset for modeling
+
+```{r}
+# cleaning the factor features
+df.2 = data.frame(lapply(df.1, function(x) {gsub("No internet service", "No", x)}))
+df.2 = data.frame(lapply(df.2, function(x) {gsub("No phone service", "No", x)}))
+
+# standardising numeric features
+num.cols = c("tenure", "MonthlyCharges", "TotalCharges")
+df.2[num.cols] = sapply(df.2[num.cols], as.numeric)
+df.2.int = df.2[, c("tenure", "MonthlyCharges", "TotalCharges")]
+df.2.int = data.frame(scale(df.2.int))
+
+# creating derived features
+df.2 = mutate(df.2, tenure.bin = tenure)
+df.2$tenure.bin[df.2$tenure.bin >= 0 & df.2$tenure.bin <= 12] = "0-1 year"
+df.2$tenure.bin[df.2$tenure.bin > 12 & df.2$tenure.bin <= 24] = "1-2 years"
+df.2$tenure.bin[df.2$tenure.bin > 24 & df.2$tenure.bin <= 36] = "2-3 years"
+df.2$tenure.bin[df.2$tenure.bin > 36 & df.2$tenure.bin <= 48] = "3-4 years"
+df.2$tenure.bin[df.2$tenure.bin > 48 & df.2$tenure.bin <= 60] = "4-5 years"
+df.2$tenure.bin[df.2$tenure.bin > 60 & df.2$tenure.bin <= 72] = "5-6 years"
+df.2$tenure.bin = as.factor(df.2$tenure.bin)
+
+# creating dummy variables for factor variables
+df.2.cat = df.2[, -c(1, 6, 19, 20)]
+
+# creating dummy variables
+df.2.dum = data.frame(sapply(df.2.cat, function(x) data.frame(model.matrix(~x-1, data = df.2.cat))[, -1]))
+
+# creating the final dataset
+df.2.final = cbind(df.2.int, df.2.dum)
+
+# partition dataset for modeling
+set.seed(123)
+split = sample.split(df.2.final$Churn, SplitRatio = 0.7)
+train.set = subset(df.2.final, split == T)
+test.set = subset(df.2.final, split == F)
+```
+
+### Machine Learning <a name = "4.2"></a>
+
+#### Logistic Regression <a name = "4.2.1"></a>
+
+We try different models to find the best logistic regression one. The stepwise variable selection model (mod.2) seems to be the better one with a lower AIC value.
+
+```{r, fig.align = "center", fig.width = 7, fig.height = 6}
+# building the first model using all variables
+mod.1 = glm(Churn ~ ., data = train.set, family = "binomial")
+
+# using stepwise for variable selection, which is a iterative process of adding or removing variables
+mod.2 = stepAIC(mod.1, direction = "both", trace = F)
+
+# checking with coef table
+vif = vif(mod.2) %>% round(2) %>% data.frame()
+colnames(vif) = "VIF"
+coef = cbind(summary(mod.2)$coef[-1, ], vif)
+coef %>% mutate(across(is.numeric, ~ format(round(., 3), nsmall = 3))) %>% 
+  ggtexttable(rows = rownames(vif), theme = ttheme("classic"))
+```
+
+We can use variance inflation factor (VIF) to get rid of redundant predictors or the variables that have high multicollinearity between them. Multicollinearity exists when two or more predictor variables are highly related to each other and then it becomes difficult to understand the impact of an independent variable on the dependent variable.  
+
+The variance inflation factor is used to measure the multicollinearity between predictor variables in a model. A predictor having a VIF of 2 or less is generally considered safe and it can be assumed that it is not correlated with other predictor variables. Higher the VIF, greater is the correlation of the predictor variable with other predictor variables.  
+
+However, predictors with high VIF may have high p-value (or highly significant). Hence, we need to see the significance of the predictor variable before removing it from our model.
+
+```{r, fig.align = "center", fig.width = 7, fig.height = 6}
+# removing insignificant variable
+mod.3 = glm(Churn ~ tenure + MonthlyCharges + SeniorCitizen + 
+              MultipleLines + InternetService.xFiber.optic + InternetService.xNo + 
+              OnlineSecurity + StreamingTV + StreamingMovies + Contract.xOne.year + 
+              Contract.xTwo.year + PaperlessBilling + PaymentMethod.xElectronic.check + 
+              tenure.bin.x2.3.years + tenure.bin.x3.4.years + tenure.bin.x4.5.years + 
+              tenure.bin.x5.6.years, 
+            family = "binomial", data = train.set)
+
+# checking with coef table
+vif = vif(mod.3) %>% round(2) %>% data.frame()
+colnames(vif) = "VIF"
+coef = cbind(summary(mod.3)$coef[-1, ], vif)
+coef %>% mutate(across(is.numeric, ~ format(round(., 3), nsmall = 3))) %>% 
+  ggtexttable(rows = rownames(vif), theme = ttheme("classic"))
+```
+
+As using a cutoff of 0.5, we are getting a good accuracy and specificity. But, the sensitivity is not optimized. Hence, we need to find the optimal probability cutoff which will give us the maximum accuracy, sensitivity, and specificity.
+
+```{r, fig.align = "center", fig.width = 3, fig.height = 1}
+# finalising model
+mod.lr = mod.3
+
+# evaluating model
+pred = predict(mod.lr, type = "response", newdata = test.set)
+pred.cutoff = factor(ifelse(pred >= 0.5, "Yes", "No"))
+actual = factor(ifelse(test.set$Churn == 1, "Yes", "No"))
+cm = confusionMatrix(pred.cutoff, actual, positive = "Yes")
+accuracy = cm$overall[1]
+sensitivity = cm$byClass[1]
+specificity = cm$byClass[2]
+as.data.frame(cbind(accuracy, sensitivity, specificity)) %>% 
+  mutate(across(is.numeric, ~ format(round(., 3), nsmall = 3))) %>% 
+  ggtexttable(rows = NULL, theme = ttheme("classic"))
+```
+
+We can see a cutoff value of 0.307 for final model. The three curves for accuracy, specificity and sensitivity meet, which is the optimal cutoff point.
+
+```{r, fig.align = "center", fig.width = 5, fig.height = 4}
+# making function
+perform.fn = function(cutoff){
+  pred.churn = factor(ifelse(pred >= cutoff, "Yes", "No"))
+  actual.churn = factor(ifelse(test.set$Churn == 1, "Yes", "No"))
+  cm = confusionMatrix(pred.churn, actual.churn, positive = "Yes")
+  accuray = cm$overall[1]
+  sensitivity = cm$byClass[1]
+  specificity = cm$byClass[2]
+  out = t(as.matrix(c(sensitivity, specificity, accuray))) 
+  colnames(out) = c("sensitivity", "specificity", "accuracy")
+  return(out)
+  }
+
+# iterating
+s = seq(0.01, 0.99, length = 100)
+out = matrix(1, 100, 3)
+for(i in 1:100){
+  out[i,] = perform.fn(s[i])
+  } 
+
+# optimizing cutoff
+plot(s, out[, 1], xlab = "Cutoff", ylab = "Value", type = "l", lwd = 2, axes = T, col = 2)
+lines(s, out[,2], col = "darkgreen", lwd = 2)
+lines(s, out[,3], col = 4, lwd = 2)
+legend("right", col = c(2, "darkgreen", 4, "darkred"), text.font = 3, inset = 0.02, 
+       box.lty = 0, cex = 0.8, lwd = c(2, 2, 2, 2), c("Sensitivity", "Specificity", "Accuracy"))
+cutoff = s[which(abs(out[,1]-out[,2]) < 0.01)]
+abline(v = cutoff, col = "black", lwd = 1, lty = 3)
+```
+
+Logistic regression with a cutoff probability value of 0.307 gives us better values of accuracy (overall precision), sensitivity (true positive identified rate), and specificity (true negative identified rate).
+
+```{r, fig.align = "center", fig.width = 3, fig.height = 1}
+# evaluating model
+pred = predict(mod.lr, type = "response", newdata = test.set)
+pred.cutoff = factor(ifelse(pred >= 0.3069, "Yes", "No"))
+actual = factor(ifelse(test.set$Churn == 1, "Yes", "No"))
+cm = confusionMatrix(pred.cutoff, actual, positive = "Yes")
+cm.lr = cm
+pred.lr = pred.cutoff
+
+# generating result
+Accuracy = cm$overall[1]
+Sensitivity = cm$byClass[1]
+Specificity = cm$byClass[2]
+as.data.frame(cbind(Accuracy, Sensitivity, Specificity)) %>% 
+  mutate(across(is.numeric, ~ format(round(., 3), nsmall = 3))) %>% 
+  ggtexttable(rows = NULL, theme = ttheme("classic"))
+```
+
+#### K Nearest Neighbors <a name = "4.2.2"></a>
+
+K nearest neighbors (KNN) does not need to use a model but just use real time searching, which is also called as a lazy learner.
+
+```{r, fig.align = "center", fig.width = 3, fig.height = 1}
+# modeling as a real time searching
+set.seed(123)
+pred.knn = knn(train = train.set[, -24], test = test.set[, -24], cl = train.set[, 24], k = 2)
+
+# evaluating model
+actual = test.set$Churn
+cm = table(pred.knn, actual) %>% confusionMatrix(positive = "1")
+cm.knn = cm
+
+# generating result
+Accuracy = cm$overall[1]
+Sensitivity = cm$byClass[1]
+Specificity = cm$byClass[2]
+as.data.frame(cbind(Accuracy, Sensitivity, Specificity)) %>% 
+  mutate(across(is.numeric, ~ format(round(., 3), nsmall = 3))) %>% 
+  ggtexttable(rows = NULL, theme = ttheme("classic"))
+```
+
+#### Support Vector Machine <a name = "4.2.3"></a>
+
+Support vector machine is a non-linear classification model based on the type of kernel chose. We already try three different kernel functions, including radial, sigmoid, and polynomial. The radial kernel is the optimal for the values of accuracy and specificity.
+
+```{r, fig.align = "center", fig.width = 3, fig.height = 1}
+# building model
+mod.svm = svm(Churn ~ ., data = train.set, type = "C-classification", kernel = "radial")
+
+# evaluating model
+pred = predict(mod.svm, newdata = test.set)
+actual = test.set$Churn
+cm = table(pred, actual) %>% confusionMatrix(positive = "1")
+cm.svm = cm
+pred.svm = pred
+
+# generating result
+Accuracy = cm$overall[1]
+Sensitivity = cm$byClass[1]
+Specificity = cm$byClass[2]
+as.data.frame(cbind(Accuracy, Sensitivity, Specificity)) %>% 
+  mutate(across(is.numeric, ~ format(round(., 3), nsmall = 3))) %>% 
+  ggtexttable(rows = NULL, theme = ttheme("classic"))
+```
+
+#### Naive Bayes <a name = "4.2.4"></a>
+
+Naive bayes is more similar as logistic regression, which all are fast speedy and reasonably accurate. But, they all need to be awared of additional assumptions to be satisfied.
+
+```{r, fig.align = "center", fig.width = 3, fig.height = 1}
+# building model
+mod.nb = naiveBayes(x = train.set[, -24], y = factor(train.set[, 24]))
+
+# evaluating model
+pred = predict(mod.nb, newdata = test.set)
+actual = test.set$Churn
+cm = table(pred, actual) %>% confusionMatrix(positive = "1")
+cm.nb = cm
+pred.nb = pred
+
+# generating result
+Accuracy = cm$overall[1]
+Sensitivity = cm$byClass[1]
+Specificity = cm$byClass[2]
+as.data.frame(cbind(Accuracy, Sensitivity, Specificity)) %>%
+  mutate(across(is.numeric, ~ format(round(., 3), nsmall = 3))) %>%
+  ggtexttable(rows = NULL, theme = ttheme("classic"))
+```
+
+#### Decision Tree <a name = "4.2.5"></a>
+
+Decision tree gives us better values of accuracy and specificity but worse value of sensitivity as compared to logistic regression.
+
+```{r, fig.align = "center", fig.width = 3, fig.height = 1}
+# building model
+mod.dt = rpart(Churn ~ ., data = train.set, method = "class", control = rpart.control(minisplit = 10))
+
+# evaluating model
+pred = predict(mod.dt, type = "class", newdata = test.set)
+actual = test.set$Churn
+cm = table(pred, actual) %>% confusionMatrix(positive = "1")
+cm.dt = cm
+pred.dt = pred
+
+# generating result
+Accuracy = cm$overall[1]
+Sensitivity = cm$byClass[1]
+Specificity = cm$byClass[2]
+as.data.frame(cbind(Accuracy, Sensitivity, Specificity)) %>% 
+  mutate(across(is.numeric, ~ format(round(., 3), nsmall = 3))) %>% 
+  ggtexttable(rows = NULL, theme = ttheme("classic"))
+```
+
+As takeing one example, the churn of yes is when tenure < -0.65 & internet service with fiber optic >= 0.5. This group covers 15% of the total.
+
+```{r, fig.align = "center", fig.width = 7, fig.height = 2}
+# generating rule table for all data
+mod.dt.all = rpart(Churn ~ ., data = df.2.final, method = "class", control = rpart.control(minisplit = 10))
+rpart.rules(mod.dt.all, cover = T, roundint = F) %>% ggtexttable(rows = NULL, theme = ttheme("classic"))
+```
+
+Thus, we have three rules to classify the churn of yes or no in total.
+
+```{r, fig.align = "center", fig.width = 5, fig.height = 4}
+# generating tree plot for all data
+fancyRpartPlot(mod.dt.all)
+```
+
+#### Random Forest <a name = "4.2.6"></a>
+
+Random forest gives an accuracy of 79.36%, which is almost close enough to the OOB estimate. The OOB error estimate comes to around 19.79%, so the model has around 80% out of sample accuracy for the train set. The OOB error is out-of-bag error estimate, which is the mean prediction error on a training sample. It may act as a cross validation.
+
+```{r, fig.align = "center", fig.width = 3, fig.height = 1}
+# building model
+set.seed(123)
+mod.rf = randomForest(factor(Churn) ~ ., data = train.set, 
+                      proximity = FALSE, importance = FALSE, ntree = 500, mtry = 4, do.trace = FALSE)
+# evaluating model
+pred = predict(mod.rf, type = "class", newdata = test.set)
+actual = test.set$Churn
+cm = table(pred, actual) %>% confusionMatrix(positive = "1")
+cm.rf = cm
+pred.rf = pred
+
+# generating result
+Accuracy = cm$overall[1]
+Sensitivity = cm$byClass[1]
+Specificity = cm$byClass[2]
+as.data.frame(cbind(Accuracy, Sensitivity, Specificity)) %>% 
+  mutate(across(is.numeric, ~ format(round(., 3), nsmall = 3))) %>% 
+  ggtexttable(rows = NULL, theme = ttheme("classic"))
+```
+
+#### XGBoost <a name = "4.2.7"></a>
+
+XGBoost (gbmboost) means stochastic gradient boosting. It is a way to do model selection. Other boostings are such as adaboost, deepboost, gamboost, and etc. They are different reinforcement algorithms. The simple meaning is about gathering the weak predictors, weight them, add them up to become a strong predictor, and use it eventually.
+
+```{r, fig.align = "center", fig.width = 3, fig.height = 1}
+# building model
+set.seed(123)
+mod.gbm = train(factor(Churn) ~ ., data = train.set, method = "gbm", verbose = F)
+
+# evaluating model
+pred = predict(mod.rf, newdata = test.set)
+actual = test.set$Churn
+cm = table(pred, actual) %>% confusionMatrix(positive = "1")
+cm.xgb = cm
+pred.xgb = pred
+
+# generating result
+Accuracy = cm$overall[1]
+Sensitivity = cm$byClass[1]
+Specificity = cm$byClass[2]
+as.data.frame(cbind(Accuracy, Sensitivity, Specificity)) %>%
+  mutate(across(is.numeric, ~ format(round(., 3), nsmall = 3))) %>%
+  ggtexttable(rows = NULL, theme = ttheme("classic"))
+```
+
+#### Neural Net <a name = "4.2.8"></a>
+
+Neural net here is used as a classification artificial neural network.
+
+```{r, fig.align = "center", fig.width = 3, fig.height = 1}
+# building model
+set.seed(123)
+mod.nn = neuralnet(Churn ~ ., data = train.set, linear.output = F, act.fct = "logistic", hidden = 1)
+
+# evaluating model
+pred = compute(mod.nn, test.set)
+pred.cutoff = factor(ifelse(pred$net.result >= 0.2624, "Yes", "No"))
+actual = factor(ifelse(test.set$Churn == 1, "Yes", "No"))
+cm = confusionMatrix(pred.cutoff, actual, positive = "Yes")
+
+# generating result
+Accuracy = cm$overall[1]
+Sensitivity = cm$byClass[1]
+Specificity = cm$byClass[2]
+as.data.frame(cbind(Accuracy, Sensitivity, Specificity)) %>%
+  mutate(across(is.numeric, ~ format(round(., 3), nsmall = 3))) %>%
+  ggtexttable(rows = NULL, theme = ttheme("classic"))
+```
+
+We can see a cutoff value of 0.262 for final model. The three curves for accuracy, specificity and sensitivity meet, which is the optimal cutoff point.
+
+```{r, fig.align = "center", fig.width = 5, fig.height = 4}
+# making function
+perform.fn = function(cutoff){
+  pred.churn = factor(ifelse(pred$net.result >= cutoff, "Yes", "No"))
+  actual.churn = factor(ifelse(test.set$Churn == 1, "Yes", "No"))
+  cm = confusionMatrix(pred.churn, actual.churn, positive = "Yes")
+  accuray = cm$overall[1]
+  sensitivity = cm$byClass[1]
+  specificity = cm$byClass[2]
+  out = t(as.matrix(c(sensitivity, specificity, accuray))) 
+  colnames(out) = c("sensitivity", "specificity", "accuracy")
+  return(out)
+  }
+
+# iterating
+s = seq(0.01, 0.99, length = 100)
+out = matrix(1, 100, 3)
+for(i in 1:100){
+  out[i,] = perform.fn(s[i])
+  } 
+
+# optimizing cutoff
+plot(s, out[, 1], xlab = "Cutoff", ylab = "Value", type = "l", lwd = 2, axes = T, col = 2)
+lines(s, out[,2], col = "darkgreen", lwd = 2)
+lines(s, out[,3], col = 4, lwd = 2)
+legend("right", col = c(2, "darkgreen", 4, "darkred"), text.font = 3, inset = 0.02, 
+       box.lty = 0, cex = 0.8, lwd = c(2, 2, 2, 2), c("Sensitivity", "Specificity", "Accuracy"))
+cutoff = s[which(abs(out[,1]-out[,2]) < 0.01)] %>% mean()
+abline(v = cutoff, col = "black", lwd = 1, lty = 3)
+```
+
+Neural net with a cutoff probability value of 0.262 gives us better values of accuracy, sensitivity, and specificity.
+
+```{r, fig.align = "center", fig.width = 3, fig.height = 1}
+# evaluating model
+pred = compute(mod.nn, test.set)
+pred.cutoff = factor(ifelse(pred$net.result >= 0.2624, "Yes", "No"))
+actual = factor(ifelse(test.set$Churn == 1, "Yes", "No"))
+cm = confusionMatrix(pred.cutoff, actual, positive = "Yes")
+cm.nn = cm
+pred.nn = pred.cutoff
+
+# generating result
+Accuracy = cm$overall[1]
+Sensitivity = cm$byClass[1]
+Specificity = cm$byClass[2]
+as.data.frame(cbind(Accuracy, Sensitivity, Specificity)) %>% 
+  mutate(across(is.numeric, ~ format(round(., 3), nsmall = 3))) %>% 
+  ggtexttable(rows = NULL, theme = ttheme("classic"))
+```
+
+We can see the neural network plot to know to conduction pathway.
+
+```{r, fig.align = "center", fig.width = 10, fig.height = 10}
+plot(mod.nn)
+```
+
+### Evaluation <a name = "4.3"></a>
+
+We can see the overview of different classification method results.
+
+```{r, fig.width = 10, fig.height = 6}
+par(mfrow = c(2, 4))
+plot(cm.lr$table, col = cm.lr$byClass, main = "Logistic Regression", 
+     sub = paste("Accuracy =", round(cm.lr$overall[1], 4)), xlab = "Prediction", ylab = "Reference")
+plot(cm.knn$table, col = cm.knn$byClass, main = "K Nearest Neighbors", 
+     sub = paste("Accuracy =", round(cm.knn$overall[1], 4)), xlab = "Prediction", ylab = "Reference")
+plot(cm.svm$table, col = cm.svm$byClass, main = "Support Vector Machine", 
+     sub = paste("Accuracy =", round(cm.svm$overall[1], 4)), xlab = "Prediction", ylab = "Reference")
+plot(cm.nb$table, col = cm.nb$byClass, main = "Naive Bayes", 
+     sub = paste("Accuracy =", round(cm.nb$overall[1], 4)), xlab = "Prediction", ylab = "Reference")
+plot(cm.dt$table, col = cm.dt$byClass, main = "Decision Tree", 
+     sub = paste("Accuracy =", round(cm.dt$overall[1], 4)), xlab = "Prediction", ylab = "Reference")
+plot(cm.rf$table, col = cm.rf$byClass, main = "Random Forest", 
+     sub = paste("Accuracy =", round(cm.rf$overall[1], 4)), xlab = "Prediction", ylab = "Reference")
+plot(cm.xgb$table, col = cm.xgb$byClass, main = "XGBoost", 
+     sub = paste("Accuracy =", round(cm.xgb$overall[1], 4)), xlab = "Prediction", ylab = "Reference")
+plot(cm.nn$table, col = cm.nn$byClass, main = "Neural Net", 
+     sub = paste("Accuracy =", round(cm.nn$overall[1], 4)), xlab = "Prediction", ylab = "Reference")
+```
+
+We can see the ROC plots for all models.
+
+```{r, fig.align = "center", fig.width = 7, fig.height = 6}
+roc.lr = roc(response = test.set$Churn, predictor = as.numeric(pred.lr))
+roc.knn = roc(response = test.set$Churn, predictor = as.numeric(pred.knn))
+roc.svm = roc(response = test.set$Churn, predictor = as.numeric(pred.svm))
+roc.nb = roc(response = test.set$Churn, predictor = as.numeric(pred.nb))
+roc.dt = roc(response = test.set$Churn, predictor = as.numeric(pred.dt))
+roc.rf = roc(response = test.set$Churn, predictor = as.numeric(pred.rf))
+roc.xgb = roc(response = test.set$Churn, predictor = as.numeric(pred.xgb))
+roc.nn = roc(response = test.set$Churn, predictor = as.numeric(pred.nn))
+# brewer.pal(n = 8, name = "Dark2")
+plot(roc.lr, col = "#1B9E77", legacy.axes = T, lty = 1, lwd = 3) # group 1
+plot(roc.knn, col = "#D95F02", add = T, lty = 3, lwd = 3) # group 2
+plot(roc.svm, col = "#7570B3" , add = T, lty = 1, lwd = 3) # group 3
+plot(roc.nb, col = "#E7298A", add = T, lty = 2, lwd = 3) # group 1
+plot(roc.dt, col = "#66A61E", add = T, lty = 1, lwd = 3) # group 2
+plot(roc.rf, col = "#E6AB02" , add = T, lty = 3, lwd = 3) # group 3
+plot(roc.xgb, col = "#A6761D", add = T, lty = 2,  lwd = 3) # group 3
+plot(roc.nn, col = "#666666", add = T, lty = 3,  lwd = 3) # group 1
+legend("bottomright",
+       c("Logistic Regression",
+         "K Nearest Neighbors",
+         "Support Vector Machine",
+         "Naive Bayes",
+         "Decision Tree",
+         "Random Forest",
+         "XGBoost",
+         "Neural Net"),
+       col = c("#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E", "#E6AB02", "#A6761D", "#666666"),
+       lty = c(1, 3, 1, 2, 1, 3, 2, 3), lwd = 3, cex = 1)
+```
+
+## Conclusion <a name = "5"></a>
+
+The highest accuracy model is support vector machine. However, accuracy is the trade-off with sensitivity. Thus, the highest sensitivity model is neural net. As considering the cost for all groups being equal, the best model from the ROC plot is logistic regression. As trying to interpret the coefficients of logistic regression model, we can know the most positive impact for yes churn (intending to churn) is the customer of tenure from 5 to 6 year, and the most negative impact for yes churn (intending to churn) is the customer of contract for 2 year (except for tenure due to significant VIF). In other words, we need to focus on the customers intending to churn and provide more incentives to avoid from losing them. On the other hand, we do not need to focus on the customers not intending to churn and shift the attention to other edges. In the future, we will consider the unequal cost for each group to find the optimal cutoff rather than this time procedure that is the joint of accuracy, sensitivity, and specificity.
+
+## Reference <a name = "6"></a>
+
+1. [Telco Customer Churn - 2017 - Keggle](https://tinyurl.com/y5r76yjn) 
+2. [Telco Customer Churn Logistic Regression - 2018 - Faraz Rahman](https://tinyurl.com/yxdlvn7p)
+3. [Telecom Churn Analysis - Nodate - Unknown](https://tinyurl.com/y2y9ast9)

@@ -1,2 +1,4 @@
-# kaggle_dataset_telcocustomerchurn_12062020
-Kaggple - Dataset - Telco Customer Churn - 12062020
+# ABOUT
+
+- Kaggple - Dataset - Telco Customer Churn - 12062020
+- Published: https://rpubs.com/cxh190001/700678
